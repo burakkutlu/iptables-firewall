@@ -1,0 +1,205 @@
+#!/usr/bin/env bash
+
+
+
+
+# Create network namespaces
+sudo ip netns add ns_client1
+sudo ip netns add ns_client2
+sudo ip netns add ns_server
+sudo ip netns add ns_firewall
+
+
+# Create the pair of veth interfaces
+sudo ip link add v_client1 type veth peer name v_firewall1
+sudo ip link add v_client2 type veth peer name v_firewall2
+sudo ip link add v_server type veth peer name v_firewall3
+sudo ip link add v_firewall4 type veth peer name v_host
+
+#Bring up 
+sudo ip link set dev v_client1 up
+sudo ip link set dev v_client2 up
+sudo ip link set dev v_server up
+sudo ip link set dev v_firewall1 up
+sudo ip link set dev v_firewall2 up
+sudo ip link set dev v_firewall3 up
+sudo ip link set dev v_firewall4 up
+sudo ip link set dev v_host up
+
+
+# Move the veth interfaces to the respective namespaces
+sudo ip link set v_client1 netns ns_client1
+sudo ip link set v_client2 netns ns_client2
+sudo ip link set v_server netns ns_server
+sudo ip link set v_firewall1 netns ns_firewall
+sudo ip link set v_firewall2 netns ns_firewall
+sudo ip link set v_firewall3 netns ns_firewall
+sudo ip link set v_firewall4 netns ns_firewall
+#sudo ip link set v_host
+
+#Bring up lo interface in namespaces
+sudo ip netns exec ns_client1 ip link set dev lo up
+sudo ip netns exec ns_client2 ip link set dev lo up
+sudo ip netns exec ns_server ip link set dev lo up
+sudo ip netns exec ns_firewall ip link set dev lo up
+
+# Enable the veth interfaces inside the namespaces
+sudo ip netns exec ns_client1 ip link set dev v_client1 up
+sudo ip netns exec ns_client2 ip link set dev v_client2 up
+sudo ip netns exec ns_server ip link set dev v_server up
+sudo ip netns exec ns_firewall ip link set dev v_firewall1 up
+sudo ip netns exec ns_firewall ip link set dev v_firewall2 up
+sudo ip netns exec ns_firewall ip link set dev v_firewall3 up
+sudo ip netns exec ns_firewall ip link set dev v_firewall4 up
+
+sudo ip link set dev v_host up
+
+
+
+# Configure IP addresses for the veth interfaces inside the namespaces
+sudo ip netns exec ns_client1 ip addr add 192.0.2.10/26 dev v_client1
+sudo ip netns exec ns_client2 ip addr add 192.0.2.70/26 dev v_client2
+sudo ip netns exec ns_server ip addr add 192.0.2.130/26 dev v_server 
+sudo ip netns exec ns_firewall ip addr add 192.0.2.11/26 dev v_firewall1
+sudo ip netns exec ns_firewall ip addr add 192.0.2.71/26 dev v_firewall2
+sudo ip netns exec ns_firewall ip addr add 192.0.2.131/26 dev v_firewall3
+sudo ip netns exec ns_firewall ip addr add 192.0.2.201/26 dev v_firewall4
+
+sudo ip addr add 192.0.2.200/26 dev v_host 
+
+
+# add routes
+
+sudo ip netns exec ns_client1 ip route add default via 192.0.2.11 dev v_client1
+sudo ip netns exec ns_client2 ip route add default via 192.0.2.71 dev v_client2
+sudo ip netns exec ns_server ip route add default via 192.0.2.131 dev v_server
+
+sudo ip netns exec ns_firewall ip route add default via 192.0.2.200 dev v_firewall4
+
+
+sudo ip netns exec ns_firewall ip route add 192.0.2.10 dev v_firewall1
+sudo ip netns exec ns_firewall ip route add 192.0.2.0/26 via 192.0.2.10 dev v_firewall1
+sudo ip netns exec ns_firewall ip route add 192.0.2.128/26 via 192.0.2.10 dev v_firewall1
+
+sudo ip netns exec ns_firewall ip route add 192.0.2.70 dev v_firewall2
+sudo ip netns exec ns_firewall ip route add 192.0.2.64/26 via 192.0.2.70 dev v_firewall2
+sudo ip netns exec ns_firewall ip route add 192.0.2.128/26 via 192.0.2.70 dev v_firewall2
+
+sudo ip netns exec ns_firewall ip route add 192.0.2.130 dev v_firewall3
+sudo ip netns exec ns_firewall ip route add 192.0.2.128/26 via 192.0.2.130 dev v_firewall3
+sudo ip netns exec ns_firewall ip route add 192.0.2.64/26 via 192.0.2.130 dev v_firewall3
+sudo ip netns exec ns_firewall ip route add 192.0.2.0/26 via 192.0.2.130 dev v_firewall3
+
+
+sudo ip route add 192.0.2.201 dev v_host
+sudo ip route add 192.0.2.128/26 via 192.0.2.201 dev v_host 
+sudo ip route add 192.0.2.64/26 via 192.0.2.201 dev v_host 
+sudo ip route add 192.0.2.0/26 via 192.0.2.201 dev v_host  
+ 
+#
+# iptables
+# 
+ 
+
+#Set default policies for INPUT chains to DROP
+sudo ip netns exec ns_firewall iptables -P INPUT DROP
+sudo ip netns exec ns_firewall iptables -P OUTPUT DROP
+sudo ip netns exec ns_firewall iptables -P FORWARD DROP
+
+#Allow traffic on loopback interface
+sudo ip netns exec ns_firewall iptables -A INPUT -i lo -j ACCEPT
+sudo ip netns exec ns_firewall iptables -A FORWARD -i lo -j ACCEPT
+sudo ip netns exec ns_firewall iptables -A OUTPUT -o lo -j ACCEPT
+
+
+
+# her birinin interneti erişimi için:
+sudo ip netns exec ns_firewall iptables -A FORWARD -i v_firewall2 -p icmp -m state --state NEW,ESTABLISHED -j ACCEPT
+
+sudo ip netns exec ns_firewall iptables -A FORWARD -o v_firewall2 -p icmp -m state --state NEW,ESTABLISHED -j ACCEPT
+
+sudo ip netns exec ns_firewall iptables -A FORWARD -i v_firewall1 -p icmp -m state --state NEW,ESTABLISHED -j ACCEPT
+
+sudo ip netns exec ns_firewall iptables -A FORWARD -o v_firewall1 -p icmp -m state --state NEW,ESTABLISHED -j ACCEPT
+
+sudo ip netns exec ns_firewall iptables -A FORWARD -i v_firewall3 -p icmp -m state --state NEW,ESTABLISHED -j ACCEPT
+
+sudo ip netns exec ns_firewall iptables -A FORWARD -o v_firewall3 -p icmp -m state --state NEW,ESTABLISHED -j ACCEPT
+
+# client1 ve client2'nin birbirine ping atmamasi icin:
+sudo ip netns exec ns_firewall iptables -I FORWARD -i v_firewall2 -d 192.0.2.10 -p icmp -m state --state NEW,ESTABLISHED -j DROP
+
+sudo ip netns exec ns_firewall iptables -I FORWARD -o v_firewall2 -s 192.0.2.10 -p icmp -m state --state NEW,ESTABLISHED -j DROP
+
+
+
+# client1'in firewall'a ping atmasi icin
+sudo ip netns exec ns_firewall iptables -I OUTPUT -o v_firewall1 -d 192.0.2.10 -p icmp -m state --state NEW,ESTABLISHED -j ACCEPT
+
+# client2'in firewall'a ping atmasi icin
+sudo ip netns exec ns_firewall iptables -I OUTPUT -o v_firewall2 -d 192.0.2.70 -p icmp -m state --state NEW,ESTABLISHED -j ACCEPT
+
+# server'in firewall'a ping atmasi icin
+sudo ip netns exec ns_firewall iptables -I OUTPUT -o v_firewall3 -d 192.0.2.130 -p icmp -m state --state NEW,ESTABLISHED -j ACCEPT
+
+
+# firewall client1'e ping atmasi icin
+sudo ip netns exec ns_firewall iptables -I INPUT -i v_firewall1 -s 192.0.2.10 -p icmp -m state --state NEW,ESTABLISHED -j ACCEPT
+
+# firewall client2'e ping atmasi icin
+sudo ip netns exec ns_firewall iptables -I INPUT -i v_firewall2 -s 192.0.2.70 -p icmp -m state --state NEW,ESTABLISHED -j ACCEPT
+
+# firewall server'a ping atmasi icin
+sudo ip netns exec ns_firewall iptables -I INPUT -i v_firewall3 -s 192.0.2.130 -p icmp -m state --state NEW,ESTABLISHED -j ACCEPT
+
+
+
+sudo ip netns exec ns_firewall iptables -I OUTPUT -o v_firewall4 -d 192.0.2.200 -p icmp -m state --state NEW,ESTABLISHED -j ACCEPT
+
+sudo ip netns exec ns_firewall iptables -I INPUT -i v_firewall4 -s 192.0.2.200 -p icmp -m state --state NEW,ESTABLISHED -j ACCEPT
+
+
+
+
+
+
+
+sudo iptables -A INPUT -i v_host -p udp -m state --state NEW,ESTABLISHED -j ACCEPT
+sudo iptables -A FORWARD -i v_host -p udp -m state --state NEW,RELATED,ESTABLISHED -j ACCEPT
+sudo iptables -A OUTPUT -o v_host -p udp -m state --state ESTABLISHED -j ACCEPT
+
+#
+# end of iptables
+# 
+
+#sudo sed -i '16 i nameserver 8.8.8.8' /etc/resolv.conf
+######################## unutma bu olmazsa calismaz ####################################
+
+
+# Enable routing in the host
+sudo ip netns exec ns_client1 sysctl -w net.ipv4.ip_forward=1
+sudo ip netns exec ns_client2 sysctl -w net.ipv4.ip_forward=1
+sudo ip netns exec ns_server sysctl -w net.ipv4.ip_forward=1
+sudo ip netns exec ns_firewall sysctl -w net.ipv4.ip_forward=1
+sudo sysctl -w net.ipv4.ip_forward=1
+
+ 
+# last part
+ 
+
+sudo bash -c 'echo 1 > /proc/sys/net/ipv4/ip_forward'
+# echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward
+
+sudo iptables -A FORWARD -o eno1 -i v_host -j ACCEPT
+sudo iptables -A FORWARD -i eno1 -o v_host -j ACCEPT
+
+sudo iptables -A FORWARD -o eno1 -i v_firewall4 -j ACCEPT
+sudo iptables -A FORWARD -i eno1 -o v_firewall4 -j ACCEPT
+
+sudo iptables -t nat -A POSTROUTING -s 192.0.2.200 -o eno1 -j MASQUERADE
+
+sudo iptables -t nat -A POSTROUTING -s 192.0.2.0/26 -o eno1 -j MASQUERADE
+sudo iptables -t nat -A POSTROUTING -s 192.0.2.64/26 -o eno1 -j MASQUERADE
+sudo iptables -t nat -A POSTROUTING -s 192.0.2.128/26 -o eno1 -j MASQUERADE
+sudo iptables -t nat -A POSTROUTING -s 192.0.2.192/26 -o eno1 -j MASQUERADE
+
