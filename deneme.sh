@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 
 
-
-
 # Create network namespaces
 sudo ip netns add ns_client1
 sudo ip netns add ns_client2
@@ -101,7 +99,7 @@ sudo ip route add 192.0.2.0/26 via 192.0.2.201 dev v_host
 # 
  
 
-#Set default policies for INPUT chains to DROP
+#Set default policies for FORWARD chains to DROP
 sudo ip netns exec ns_firewall iptables -P FORWARD DROP
 
 #Allow traffic on loopback interface
@@ -121,6 +119,7 @@ sudo ip netns exec ns_firewall iptables -A FORWARD -i v_firewall3 -p icmp -m sta
 
 sudo ip netns exec ns_firewall iptables -A FORWARD -o v_firewall3 -p icmp -m state --state NEW,ESTABLISHED -j ACCEPT
 
+
 # client1 ve client2'nin birbirine ping atmamasi icin:
 sudo ip netns exec ns_firewall iptables -I FORWARD -i v_firewall2 -d 192.0.2.10 -p icmp -m state --state NEW,ESTABLISHED -j DROP
 
@@ -128,6 +127,25 @@ sudo ip netns exec ns_firewall iptables -I FORWARD -o v_firewall2 -s 192.0.2.10 
 
 # client1 ve client2'nin internete baglanmasi icin:
 sudo ip netns exec ns_firewall iptables -A FORWARD -p udp -m state --state NEW,RELATED,ESTABLISHED -j ACCEPT
+
+
+# server erisimi icin:
+sudo ip netns exec ns_firewall iptables -A FORWARD -p ip -m state --state NEW,ESTABLISHED -j ACCEPT
+
+
+
+# client1 cannot and client2 can access http server
+sudo ip netns exec ns_firewall iptables -I FORWARD -p tcp -s 192.0.2.70 -m multiport --dports 80,443 -m state --state NEW,ESTABLISHED -j ACCEPT
+
+sudo ip netns exec ns_firewall iptables -I FORWARD -p tcp -s 192.0.2.10 -m multiport --dports 80,443 -m state --state NEW,ESTABLISHED -j DROP
+
+
+
+# client1 cannot ping firewall
+sudo ip netns exec ns_firewall iptables -A INPUT -i v_firewall1 -d 192.0.2.11 -p icmp -m state --state NEW,ESTABLISHED -j DROP
+sudo ip netns exec ns_firewall iptables -A INPUT -i v_firewall1 -d 192.0.2.71 -p icmp -m state --state NEW,ESTABLISHED -j DROP
+sudo ip netns exec ns_firewall iptables -A INPUT -i v_firewall1 -d 192.0.2.131 -p icmp -m state --state NEW,ESTABLISHED -j DROP
+sudo ip netns exec ns_firewall iptables -A INPUT -i v_firewall1 -d 192.0.2.201 -p icmp -m state --state NEW,ESTABLISHED -j DROP
 
 
 
@@ -141,6 +159,9 @@ sudo iptables -A OUTPUT -o v_host -p udp -m state --state ESTABLISHED -j ACCEPT
 
 #sudo sed -i '16 i nameserver 8.8.8.8' /etc/resolv.conf
 ######################## unutma bu olmazsa calismaz ####################################
+
+# server'i-ın içinde python http serveri calistirmak icin
+#sudo ip netns exec ns_server python3 -m http.server -b 192.0.2.130 80
 
 
 # Enable routing in the host
